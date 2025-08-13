@@ -7,6 +7,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,13 +19,16 @@ import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack // For drawer items if needed
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.DrawerState
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -71,6 +75,7 @@ import retrofit2.Response
 
 // ... other imports ...
 
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,6 +96,8 @@ class MainActivity : ComponentActivity() {
 fun MainScreenWithNavigationDrawer() {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    var showAboutDialog by remember { mutableStateOf(false) }
+    var videoResults by remember { mutableStateOf<List<String>>(emptyList()) } // Changed to List<VideoItem>
     //This is the actual slide-in menu providing access to different sections of the app
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -110,12 +117,56 @@ fun MainScreenWithNavigationDrawer() {
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
                 NavigationDrawerItem(
+                    icon = { Icon(Icons.Filled.Search, contentDescription = "Videos de automovil") },
+                    label = { Text("De qué automóvil buscas su video?") },
+                    selected = false, // You can manage selection state if needed
+                    onClick = {
+                        scope.launch {
+                            try {
+                                val call = RetrofitClient.videoApi.getVideos(
+                                    channel_id = "UC-kBlBK4icUzAN-2amwIRQA",
+                                    keyword = "Tsuru"
+                                )
+                                call.enqueue(object : Callback<VideosResponse> {
+                                    override fun onResponse(call: Call<VideosResponse>, response: Response<VideosResponse>) {
+                                        if (response.isSuccessful && response.body() != null) {
+                                            videoResults = response.body()?.results?: emptyList()
+                                            Log.d("MainActivity","Response: $response")
+                                            Log.d("MainActivity", "Videos fetched: ${videoResults.size}")
+                                            videoResults.forEach { video ->
+                                                Log.d("MainActivity", "Video Title: ${video}")
+                                            }
+                                        } else {
+                                            Log.e(
+                                                "MainActivity",
+                                                "Error fetching videos: ${response.code()} - ${response.message()}"
+                                            )
+                                            videoResults = emptyList()
+                                        }
+                                    }
+
+                                    override fun onFailure(call: Call<VideosResponse>, t: Throwable) {
+                                        Log.e("MainActivity", "Exception fetching videos", t)
+                                        videoResults = emptyList()
+                                    }
+                                })
+                            } catch (e: Exception) {
+                                Log.e("MainActivity", "Exception fetching videos", e)
+                                videoResults = emptyList()
+                            }
+                            drawerState.close()
+                        }
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                )
+                NavigationDrawerItem(
                     icon = { Icon(Icons.Filled.Settings, contentDescription = "Ajustes") },
                     label = { Text("Ajustes") },
                     selected = false,
                     onClick = {
                         scope.launch { drawerState.close() }
                         // Handle "Settings" click
+
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
@@ -126,21 +177,37 @@ fun MainScreenWithNavigationDrawer() {
                     selected = false,
                     onClick = {
                         scope.launch { drawerState.close() }
-                        // Handle "About" click
+                        showAboutDialog = true
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
                 // Add more items as needed
             }
-        }
+        },
+        gesturesEnabled = drawerState.isOpen // Optionally disable swipe gestures when open
     ) {
+        // Main content area
+        Box { // Use Box to overlay AlertDialog
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text("Tu Coche Reviews!") },
+                        navigationIcon = {
+                            IconButton(onClick = { scope.launch { if (drawerState.isClosed) drawerState.open() else drawerState.close() } }) {
+                                Icon(Icons.Filled.Menu, "Menu")
+                            }
+                        }
+                    )
+                }
+            ) { innerPadding -> ApiUI(modifier = Modifier.padding(innerPadding), videoResults = videoResults) }
+
         // Your main screen content (ApiUI) goes here, within a Scaffold
         //Layout component for building user interfaces, it acts as a container that organizes
         // and arranges common UI elements such as navigation drawers
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Tu Coche!") },
+                    title = { Text("Tu Coche! Reviews") },
                     navigationIcon = {
                         //It contains an icon in order to display the drawerState
                         IconButton(onClick = {
@@ -163,14 +230,49 @@ fun MainScreenWithNavigationDrawer() {
             }
         ) { innerPadding ->
             // Pass the padding to ApiUI so content isn't obscured by the TopAppBar
-            ApiUI(modifier = Modifier.padding(innerPadding))
+            ApiUI(modifier = Modifier.padding(innerPadding), videoResults = videoResults)
         }
+        }
+
+        // AlertDialog for "About"
+        if (showAboutDialog) {
+            AlertDialog(
+                onDismissRequest = { showAboutDialog = false },
+                title = { Text("Acerca de ...") },
+                text = { Text("Tu Coche Reviews v1.0") },
+                confirmButton = {
+                    //In order to display the button on the middle
+                    //we should display it inside of a box
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Button(
+                            onClick = { showAboutDialog = false },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.Red,
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text("Cerrar")
+                        }
+                    }
+                },
+                icon = { Icon(Icons.Filled.Person, contentDescription = "About Icon") }
+            )
+        }
+
+
+
     }
 }
 
+// Removed unused extension functions
+// private fun Unit.body() { ... }
+// private fun Any.getVideos(channelId: String, keyword: String) {}
 
 @Composable
-fun ApiUI(modifier: Modifier = Modifier) { // Accept a Modifier
+fun ApiUI(modifier: Modifier = Modifier, videoResults: List<String> = emptyList()) { // Accept a Modifier and videoResults
     var question by remember { mutableStateOf("Cual es el mejor carro practico") }
     var answer by remember { mutableStateOf("") }
     var bestCar by remember { mutableStateOf("") }
@@ -325,6 +427,19 @@ fun ApiUI(modifier: Modifier = Modifier) { // Accept a Modifier
                 }
             }
         }
+
+        // Display Video Results
+        if (videoResults.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Resultados de Videos:", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            videoResults.forEach { videoItem ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Título: ${videoItem}")
+                // You can add more details or make it clickable to open the video
+                Divider(modifier = Modifier.padding(vertical = 4.dp))
+            }
+        }
+
     }
 }
 
