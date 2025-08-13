@@ -4,64 +4,33 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import android.webkit.URLUtil
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack // For drawer items if needed
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Divider
-import androidx.compose.material3.DrawerState
-import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationDrawerItem
-import androidx.compose.material3.NavigationDrawerItemDefaults
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberDrawerState
-import androidx.compose.runtime.Composable
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.localapiclient.ui.theme.LocalApiClientTheme
 import kotlinx.coroutines.launch
@@ -69,7 +38,11 @@ import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
 
-// ... other imports ...
+// Define an enum for the view modes
+enum class ViewMode {
+    CRITICA, // For asking AI questions
+    VIDEOS   // For displaying video lists
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -77,38 +50,128 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             LocalApiClientTheme {
-                // Surface is still good as a root for theming
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    MainScreenWithNavigationDrawer() // New entry point
+                    MainScreenWithNavigationDrawer()
                 }
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class) // For TopAppBar and other Material 3 components
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreenWithNavigationDrawer() {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    //This is the actual slide-in menu providing access to different sections of the app
+    var showAboutDialog by remember { mutableStateOf(false) }
+
+    // --- Hoisted State ---
+    var videoResults by remember { mutableStateOf<List<String>>(emptyList()) }
+    var answer by remember { mutableStateOf("") }
+    var bestCar by remember { mutableStateOf("") }
+    var imageUrl by remember { mutableStateOf<String?>(null) }
+    var isLoadingCritica by remember { mutableStateOf(false) }
+    var isLoadingVideos by remember { mutableStateOf(false) }
+
+    var currentViewMode by remember { mutableStateOf(ViewMode.CRITICA) }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet {
-                // Content of your Navigation Drawer
                 Spacer(Modifier.height(12.dp))
+
                 NavigationDrawerItem(
-                    icon = { Icon(Icons.Filled.Search, contentDescription = "Crítica de automovil") },
-                    label = { Text("De qué automóvil buscas su crítica?") },
-                    selected = false, // You can manage selection state if needed
+                    icon = {
+                        Icon(
+                            Icons.Filled.Person,
+                            contentDescription = "Critica de automovil"
+                        )
+                    },
+                    label = { Text("Critica de automovil") },
+                    selected = currentViewMode == ViewMode.CRITICA,
                     onClick = {
+                        currentViewMode = ViewMode.CRITICA
+                        videoResults = emptyList() // Clear video results
+                        // Optionally clear AI results if you want a fresh screen each time
+                        // answer = ""
+                        // bestCar = ""
+                        // imageUrl = null
+                        // isLoadingCritica = false
                         scope.launch { drawerState.close() }
-                        // Handle "Search Car" click, e.g., navigate or change UI state
-                        // For this example, we'll just close the drawer
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
+
+                NavigationDrawerItem(
+                    icon = {
+                        Icon(
+                            Icons.Filled.Person,
+                            contentDescription = "Videos de automovil"
+                        )
+                    },
+                    label = { Text("Videos de automovil") },
+                    selected = currentViewMode == ViewMode.VIDEOS,
+                    onClick = {
+                        currentViewMode = ViewMode.VIDEOS
+                        // Clear AI question results
+                        answer = ""
+                        bestCar = ""
+                        imageUrl = null
+                        isLoadingCritica = false
+
+                        scope.launch {
+                            try {
+                                videoResults = emptyList() // Clear previous before fetching
+                                isLoadingVideos = true
+                                Log.d("MainActivity", "Fetching videos...")
+                                // Replace with your actual channel ID and keyword source
+                                val call = RetrofitClient.videoApi.getVideos(
+                                    channel_id = "UC-kBlBK4icUzAN-2amwIRQA", // Example
+                                    keyword = "Tsuru" // Example
+                                )
+                                call.enqueue(object : Callback<VideosResponse> {
+                                    override fun onResponse(
+                                        call: Call<VideosResponse>,
+                                        response: Response<VideosResponse>
+                                    ) {
+                                        isLoadingVideos = false
+                                        if (response.isSuccessful) {
+                                            val videosResponseData = response.body()
+                                            videoResults = videosResponseData?.results ?: emptyList()
+                                            Log.d(
+                                                "MainActivity",
+                                                "Videos fetched. Count: ${videoResults.size}"
+                                            )
+                                        } else {
+                                            Log.e(
+                                                "MainActivity",
+                                                "Error fetching videos: ${response.code()} - ${response.message()}"
+                                            )
+                                            videoResults = emptyList()
+                                        }
+                                    }
+
+                                    override fun onFailure(
+                                        call: Call<VideosResponse>,
+                                        t: Throwable
+                                    ) {
+                                        isLoadingVideos = false
+                                        Log.e("MainActivity", "Exception fetching videos", t)
+                                        videoResults = emptyList()
+                                    }
+                                })
+                            } catch (e: Exception) {
+                                isLoadingVideos = false
+                                Log.e("MainActivity", "Exception initiating video fetch", e)
+                                videoResults = emptyList()
+                            }
+                            drawerState.close()
+                        }
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                )
+
                 NavigationDrawerItem(
                     icon = { Icon(Icons.Filled.Settings, contentDescription = "Ajustes") },
                     label = { Text("Ajustes") },
@@ -126,35 +189,30 @@ fun MainScreenWithNavigationDrawer() {
                     selected = false,
                     onClick = {
                         scope.launch { drawerState.close() }
-                        // Handle "About" click
+                        showAboutDialog = true
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
-                // Add more items as needed
             }
         }
     ) {
-        // Your main screen content (ApiUI) goes here, within a Scaffold
-        //Layout component for building user interfaces, it acts as a container that organizes
-        // and arranges common UI elements such as navigation drawers
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Tu Coche!") },
-                    navigationIcon = {
-                        //It contains an icon in order to display the drawerState
-                        IconButton(onClick = {
-                            scope.launch {
-                                if (drawerState.isClosed) drawerState.open() else drawerState.close()
+                    title = {
+                        Text(
+                            when (currentViewMode) {
+                                ViewMode.CRITICA -> "Critica de Automovil"
+                                ViewMode.VIDEOS -> "Videos de Automovil"
                             }
-                        }) {
-                            Icon(
-                                imageVector = Icons.Filled.Menu,
-                                contentDescription = "Open Navigation Menu"
-                            )
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { scope.launch { if (drawerState.isClosed) drawerState.open() else drawerState.close() } }) {
+                            Icon(Icons.Filled.Menu, "Menu")
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors( // Optional: Customize colors
+                    colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                         titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                         navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -162,186 +220,276 @@ fun MainScreenWithNavigationDrawer() {
                 )
             }
         ) { innerPadding ->
-            // Pass the padding to ApiUI so content isn't obscured by the TopAppBar
-            ApiUI(modifier = Modifier.padding(innerPadding))
+            ApiUI(
+                modifier = Modifier.padding(innerPadding),
+                currentViewMode = currentViewMode,
+                videoResults = videoResults,
+                answer = answer,
+                onAnswerChange = { answer = it },
+                bestCar = bestCar,
+                onBestCarChange = { bestCar = it },
+                imageUrl = imageUrl,
+                onImageUrlChange = { imageUrl = it },
+                isLoadingCritica = isLoadingCritica,
+                onIsLoadingCriticaChange = { isLoadingCritica = it },
+                isLoadingVideos = isLoadingVideos
+            )
+        }
+
+        if (showAboutDialog) {
+            AlertDialog(
+                onDismissRequest = { showAboutDialog = false },
+                title = { Text("Acerca de ...") },
+                text = { Text("Tu Coche Reviews v1.0") },
+                confirmButton = {
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Button(
+                            onClick = { showAboutDialog = false },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.Red,
+                                contentColor = Color.White
+                            )
+                        ) { Text("Cerrar") }
+                    }
+                },
+                icon = { Icon(Icons.Filled.Person, contentDescription = "About Icon") }
+            )
         }
     }
 }
 
-
 @Composable
-fun ApiUI(modifier: Modifier = Modifier) { // Accept a Modifier
-    var question by remember { mutableStateOf("Cual es el mejor carro practico") }
-    var answer by remember { mutableStateOf("") }
-    var bestCar by remember { mutableStateOf("") }
-    var imageUrl by remember { mutableStateOf<String?>(null) }
-    var isLoading by remember { mutableStateOf(false) }
-    // var showMenu by remember { mutableStateOf(false) } // Not needed for DropdownMenu anymore
-
+fun ApiUI(
+    modifier: Modifier = Modifier,
+    currentViewMode: ViewMode,
+    videoResults: List<String>,
+    answer: String,
+    onAnswerChange: (String) -> Unit,
+    bestCar: String,
+    onBestCarChange: (String) -> Unit,
+    imageUrl: String?,
+    onImageUrlChange: (String?) -> Unit,
+    isLoadingCritica: Boolean,
+    onIsLoadingCriticaChange: (Boolean) -> Unit,
+    isLoadingVideos: Boolean
+) {
+    var question by remember { mutableStateOf("Cual es el mejor carro practico") } // Stays local to ApiUI if only used for this input
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
+    val localContext = LocalContext.current
 
     Column(
-        // Apply the passed modifier here, which includes padding from Scaffold
-        // and also your existing padding and scroll behavior.
-        modifier = modifier // This 'modifier' now comes from the Scaffold's content lambda
+        modifier = modifier
             .fillMaxSize()
-            // The padding for status bars and screen edges is now handled by Scaffold + innerPadding,
-            // but you might want to add some internal padding within the content area.
-            .padding(start = 16.dp, end = 16.dp, bottom = 16.dp) // Keep horizontal/bottom padding
-            .verticalScroll(scrollState),
+            .verticalScroll(scrollState)
+            .padding(start = 16.dp, end = 16.dp, bottom = 16.dp), // Content padding
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // The Row with "Tu Coche!" and the menu icon is now part of the TopAppBar in Scaffold
-        // So we remove it from here.
-
-        Spacer(modifier = Modifier.height(8.dp)) // Maybe adjust or remove depending on TopAppBar
-        OutlinedTextField(
-            value = question,
-            onValueChange = { question = it },
-            textStyle = TextStyle(fontSize = 14.sp),
-            label = { Text(text = "Haz tu pregunta ", fontStyle = FontStyle.Italic) },
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Filled.Search,
-                    contentDescription = "Search Icon"
+        when (currentViewMode) {
+            ViewMode.CRITICA -> {
+                // --- UI for "Critica de automovil" ---
+                OutlinedTextField(
+                    value = question,
+                    onValueChange = { question = it },
+                    textStyle = TextStyle(fontSize = 14.sp),
+                    label = { Text(text = "Haz tu pregunta ", fontStyle = FontStyle.Italic) },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = "Search Icon") },
+                    modifier = Modifier.fillMaxWidth()
                 )
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Button(
-            onClick = {
-                isLoading = true
-                coroutineScope.launch {
-                    val request = QuestionInput(question)
-                    RetrofitClient.api.askQuestion(request).enqueue(object :
-                        Callback<QuestionResponse> {
-                        override fun onResponse(
-                            call: Call<QuestionResponse>,
-                            response: Response<QuestionResponse>
-                        ) {
-                            isLoading = false
-                            val data = response.body()
-                            if (response.isSuccessful && data != null) {
-                                answer = data.answer ?: ""
-                                if (answer.contains("@") || answer.startsWith("(@")) {
-                                    val annotatedString = buildAnnotatedString {
-
-                                        append(answer)
-                                        answer.split(" ").forEach { word ->
-                                            if (word.startsWith("@")) {
-                                                addStringAnnotation("URL", "https://x.com/${word.substring(1)}", answer.indexOf(word) , answer.indexOf(word) + word.length)
-                                            }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        onIsLoadingCriticaChange(true)
+                        coroutineScope.launch {
+                            val request = QuestionInput(question)
+                            RetrofitClient.api.askQuestion(request)
+                                .enqueue(object : Callback<QuestionResponse> {
+                                    override fun onResponse(
+                                        call: Call<QuestionResponse>,
+                                        response: Response<QuestionResponse>
+                                    ) {
+                                        onIsLoadingCriticaChange(false)
+                                        val data = response.body()
+                                        if (response.isSuccessful && data != null) {
+                                            onAnswerChange(data.answer ?: "")
+                                            onBestCarChange(data.best_car ?: "")
+                                            onImageUrlChange(data.image_url)
+                                        } else {
+                                            onAnswerChange("Error: ${response.code()} - ${response.message()}")
+                                            onBestCarChange("")
+                                            onImageUrlChange(null)
                                         }
                                     }
 
-                                }
-                                bestCar = data.best_car ?: ""
-                                imageUrl = data.image_url
-                            } else {
-                                answer = "Error: ${response.code()} - ${response.message()}"
-                                bestCar = ""
-                                imageUrl = null
-                            }
+                                    override fun onFailure(
+                                        call: Call<QuestionResponse>,
+                                        t: Throwable
+                                    ) {
+                                        onIsLoadingCriticaChange(false)
+                                        onAnswerChange("Failure: ${t.message}")
+                                        onBestCarChange("")
+                                        onImageUrlChange(null)
+                                    }
+                                })
                         }
-
-                        override fun onFailure(call: Call<QuestionResponse>, t: Throwable) {
-                            isLoading = false
-                            answer = "Failure: ${t.message}"
-                            bestCar = ""
-                            imageUrl = null
-                        }
-                    })
+                    },
+                    enabled = !isLoadingCritica,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.Red,
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text("Preguntale a IA")
                 }
-            },
-            enabled = !isLoading,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color.Red,
-                contentColor = Color.White
-            )
-        ) {
-            Text("Preguntale a IA")
-        }
 
-        Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-        if (isLoading) {
-            CircularProgressIndicator(color = Color.Red)
-        } else {
-            Column(
-                modifier = Modifier.fillMaxWidth(), // Removed weight and modifier, parent Column handles scrolling
+                if (isLoadingCritica) {
+                    CircularProgressIndicator(color = Color.Red)
+                } else {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                if (answer.isNotEmpty()) {
-                    Text(text = "Respuesta: ", fontWeight = FontWeight.Bold)
-                    val annotatedString = buildAnnotatedString {
-                        append(answer)
-                        answer.split(" ").forEach { word ->
-                            if (word.startsWith("@") || word.startsWith("(@")) {
-                                Log.i("MainActivity", "Found word starting with @: $word")
-                                addStringAnnotation("URL", "https://x.com/${word.substring(1)}", answer.indexOf(word), answer.indexOf(word) + word.length)
-                                addStyle(style = SpanStyle(
-                                    color = Color.Blue,
-                                    textDecoration = TextDecoration.Underline
-                                ), answer.indexOf(word), answer.indexOf(word) + word.length)
+                    ) {
+                        if (answer.isNotEmpty()) {
+                            Text(text = "Respuesta: ", fontWeight = FontWeight.Bold)
+                            val annotatedString = buildAnnotatedString {
+                                append(answer)
+                                answer.split(" ").forEach { word ->
+                                    if (word.startsWith("@") || word.startsWith("(@")) {
+                                        val urlTarget = word.trimStart('(', '@')
+                                            .removeSuffix(")") // Handle cases like (@user)
+                                        try {
+                                            val annotationStart = answer.indexOf(word)
+                                            val annotationEnd = annotationStart + word.length
+                                            if (annotationStart != -1) { // Ensure word is found
+                                                addStringAnnotation(
+                                                    "URL",
+                                                    "https://x.com/$urlTarget",
+                                                    annotationStart,
+                                                    annotationEnd
+                                                )
+                                                addStyle(
+                                                    style = SpanStyle(
+                                                        color = Color.Blue,
+                                                        textDecoration = TextDecoration.Underline
+                                                    ),
+                                                    annotationStart,
+                                                    annotationEnd
+                                                )
+                                            }
+                                        } catch (e: Exception) {
+                                            Log.e(
+                                                "ApiUI",
+                                                "Error creating annotation for word: $word",
+                                                e
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            ClickableText(text = annotatedString, onClick = { offset ->
+                                annotatedString.getStringAnnotations("URL", offset, offset)
+                                    .firstOrNull()?.let { annotation ->
+                                        try {
+                                            val intent = Intent(
+                                                Intent.ACTION_VIEW,
+                                                Uri.parse(annotation.item)
+                                            )
+                                            localContext.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            Log.e(
+                                                "ApiUI",
+                                                "Could not open URL: ${annotation.item}",
+                                                e
+                                            )
+                                        }
+                                    }
+                            })
+                        } else {
+                            if (bestCar.isNotBlank() || imageUrl != null) { // Show message if there was a previous non-empty response
+                                Text(text = "Respuesta: (No disponible o vacía)")
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        if (bestCar.isNotEmpty()) {
+                            Text(
+                                text = "Carro que mas se adapta a tu pregunta: ",
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = bestCar,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else {
+                            if (answer.isNotBlank() || imageUrl != null) {
+                                Text(text = "Carro que mas se adapta a tu pregunta: (No disponible)")
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        imageUrl?.let { url ->
+                            if (url.isNotBlank()) {
+                                AsyncImage(
+                                    model = url,
+                                    contentDescription = "Image for $bestCar",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(200.dp) // Added fixed height for example
+                                )
                             }
                         }
                     }
-                    Log.i("MainActivity","annotatedString: $annotatedString")
-                    val localContext = LocalContext.current
-                    ClickableText(text = annotatedString, onClick = { offset ->
-                        annotatedString.getStringAnnotations("URL", offset, offset)
-                            .firstOrNull()?.let { annotation ->
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(annotation.item))
-                                localContext.startActivity(intent)
+                }
+            }
+
+            ViewMode.VIDEOS -> {
+                // --- UI for "Videos de automovil" ---
+                if (isLoadingVideos) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    CircularProgressIndicator(color = Color.Blue)
+                } else if (videoResults.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Resultados de Videos:", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    videoResults.forEach { videoItem ->
+                        val annotatedVideoString = buildAnnotatedString {
+                            append(videoItem)
+                            if (URLUtil.isValidUrl(videoItem)) {
+                                addStringAnnotation("VIDEO_URL", videoItem, 0, videoItem.length)
+                                addStyle(
+                                    style = SpanStyle(color = Color.Blue, textDecoration = TextDecoration.Underline),
+                                    0,
+                                    videoItem.length
+                                )
                             }
-                    })
-                } else {
-                    if (answer.isNotBlank() || bestCar.isNotBlank()) {
-                        Text(text = "Respuesta: (Not available or empty)")
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                if (bestCar.isNotEmpty()) {
-                    Text(text = "Carro que mas se adapta a tu pregunta: ", fontWeight = FontWeight.Bold)
-                    Text(text = bestCar, color = Color.Blue, fontWeight = FontWeight.Bold)
-                } else {
-                    if (answer.isNotBlank() || bestCar.isNotBlank()) {
-                        Text(text = "Carro que mas se adapta a tu pregunta: (No disponible)")
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                imageUrl?.let { url ->
-                    if (url.isNotBlank()) {
-                        AsyncImage(
-                            model = url,
-                            contentDescription = "Image for $bestCar",
-                            modifier = Modifier.fillMaxWidth()
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        ClickableText(
+                            text = annotatedVideoString,
+                            onClick = { offset ->
+                                annotatedVideoString.getStringAnnotations("VIDEO_URL", offset, offset)
+                                    .firstOrNull()?.let { annotation ->
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(annotation.item))
+                                        localContext.startActivity(intent)
+                                    }
+                            }
                         )
+                        Divider(modifier = Modifier.padding(vertical = 4.dp))
+
                     }
+                } else {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("No se encontraron videos o no se han buscado.")
                 }
             }
         }
     }
 }
 
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    var str = "Juan"+"1"
-    Text(
-        text = "Hello "+str,
-        modifier = modifier
-    )
-}
-
-
 @Preview(showBackground = true)
 @Composable
-fun ApiUIPreview() {
+fun DefaultPreview() {
     LocalApiClientTheme {
-        ApiUI()
+        MainScreenWithNavigationDrawer()
     }
 }
