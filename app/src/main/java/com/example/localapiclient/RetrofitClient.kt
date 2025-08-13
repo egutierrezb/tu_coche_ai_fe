@@ -1,6 +1,7 @@
 package com.example.localapiclient
 
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.logging.HttpLoggingInterceptor // Correct import for HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -19,10 +20,26 @@ object RetrofitClient {
 
     val api: ApiService by lazy {
         Retrofit.Builder()
+            //ipconfig getifaddr en1 for getting the ip address
             .baseUrl("http://192.168.68.104:8000")  //user your backend ip
             .client(httpClient)// use the okhttpclient instance with logger and timeouts
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(ApiService::class.java)
     }
+
+    val videoApi: VideosService by lazy {
+        Retrofit.Builder()
+            // ipconfig getifaddr en1 for getting the ip address
+            .baseUrl("http://192.168.68.104:8001")  //user your backend ip
+            .client(httpClient)// use the okhttpclient instance with logger and timeouts
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(VideosService::class.java)
+    }
+
+    /*val request: Request = Request.Builder()
+        .url("http://192.168.68.104:8001/videos?channel_id=UC-kBlBK4icUzAN-2amwIRQA&keyword=Tsuru")
+        .get()
+        .build()*/
 }
