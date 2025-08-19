@@ -14,5 +14,5 @@ interface VideosService {
 }
 
 data class VideosResponse(
-    val results: List<String>
+    val results: Map<String,String>
 )
