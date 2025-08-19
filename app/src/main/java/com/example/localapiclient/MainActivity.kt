@@ -66,14 +66,58 @@ fun MainScreenWithNavigationDrawer() {
     var showAboutDialog by remember { mutableStateOf(false) }
 
     // --- Hoisted State ---
-    var videoResults by remember { mutableStateOf<List<String>>(emptyList()) }
+    var videoResults by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var answer by remember { mutableStateOf("") }
     var bestCar by remember { mutableStateOf("") }
     var imageUrl by remember { mutableStateOf<String?>(null) }
     var isLoadingCritica by remember { mutableStateOf(false) }
     var isLoadingVideos by remember { mutableStateOf(false) }
+    var videoKeyword by remember { mutableStateOf("Tsuru") } // State for the video keyword input
 
     var currentViewMode by remember { mutableStateOf(ViewMode.CRITICA) }
+    val coroutineScope = rememberCoroutineScope()
+
+    // Extracted video fetching logic to be accessible in MainScreenWithNavigationDrawer
+    fun fetchVideos(keyword: String, setIsLoading: (Boolean) -> Unit, setResults: (Map<String,String>) -> Unit) {
+        coroutineScope.launch {
+            try {
+                setResults(emptyMap()) // Clear previous before fetching
+                setIsLoading(true)
+                Log.d("MainActivity", "Fetching videos for keyword: $keyword")
+                val call = RetrofitClient.videoApi.getVideos(
+                    channel_id = "UC-kBlBK4icUzAN-2amwIRQA", // Example
+                    keyword = keyword
+                )
+
+                call.enqueue(object : Callback<VideosResponse> {
+                    override fun onResponse(
+                        call: Call<VideosResponse>,
+                        response: Response<VideosResponse>
+                    ) {
+                        setIsLoading(false)
+                        if (response.isSuccessful) {
+                            val videosResponseData = response.body()
+                            setResults(videosResponseData?.results ?: emptyMap())
+                            Log.d("MainActivity", "Videos fetched. Count: ${videosResponseData?.results?.size}")
+                        } else {
+                            Log.e("MainActivity", "Error fetching videos: ${response.code()} - ${response.message()}")
+                            setResults(emptyMap())
+                        }
+                    }
+
+                    override fun onFailure(call: Call<VideosResponse>, t: Throwable) {
+                        setIsLoading(false)
+                        Log.e("MainActivity", "Exception fetching videos", t)
+                        setResults(emptyMap())
+                    }
+                })
+            } catch (e: Exception) {
+                setIsLoading(false)
+                Log.e("MainActivity", "Exception initiating video fetch", e)
+                setResults(emptyMap())
+            }
+        }
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -92,7 +136,7 @@ fun MainScreenWithNavigationDrawer() {
                     selected = currentViewMode == ViewMode.CRITICA,
                     onClick = {
                         currentViewMode = ViewMode.CRITICA
-                        videoResults = emptyList() // Clear video results
+                        videoResults = emptyMap() // Clear video results
                         // Optionally clear AI results if you want a fresh screen each time
                         // answer = ""
                         // bestCar = ""
@@ -119,55 +163,7 @@ fun MainScreenWithNavigationDrawer() {
                         bestCar = ""
                         imageUrl = null
                         isLoadingCritica = false
-
-                        scope.launch {
-                            try {
-                                videoResults = emptyList() // Clear previous before fetching
-                                isLoadingVideos = true
-                                Log.d("MainActivity", "Fetching videos...")
-                                // Replace with your actual channel ID and keyword source
-                                val call = RetrofitClient.videoApi.getVideos(
-                                    channel_id = "UC-kBlBK4icUzAN-2amwIRQA", // Example
-                                    keyword = "Tsuru" // Example
-                                )
-                                call.enqueue(object : Callback<VideosResponse> {
-                                    override fun onResponse(
-                                        call: Call<VideosResponse>,
-                                        response: Response<VideosResponse>
-                                    ) {
-                                        isLoadingVideos = false
-                                        if (response.isSuccessful) {
-                                            val videosResponseData = response.body()
-                                            videoResults = videosResponseData?.results ?: emptyList()
-                                            Log.d(
-                                                "MainActivity",
-                                                "Videos fetched. Count: ${videoResults.size}"
-                                            )
-                                        } else {
-                                            Log.e(
-                                                "MainActivity",
-                                                "Error fetching videos: ${response.code()} - ${response.message()}"
-                                            )
-                                            videoResults = emptyList()
-                                        }
-                                    }
-
-                                    override fun onFailure(
-                                        call: Call<VideosResponse>,
-                                        t: Throwable
-                                    ) {
-                                        isLoadingVideos = false
-                                        Log.e("MainActivity", "Exception fetching videos", t)
-                                        videoResults = emptyList()
-                                    }
-                                })
-                            } catch (e: Exception) {
-                                isLoadingVideos = false
-                                Log.e("MainActivity", "Exception initiating video fetch", e)
-                                videoResults = emptyList()
-                            }
-                            drawerState.close()
-                        }
+                        scope.launch { drawerState.close() }
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
@@ -232,7 +228,11 @@ fun MainScreenWithNavigationDrawer() {
                 onImageUrlChange = { imageUrl = it },
                 isLoadingCritica = isLoadingCritica,
                 onIsLoadingCriticaChange = { isLoadingCritica = it },
-                isLoadingVideos = isLoadingVideos
+                isLoadingVideos = isLoadingVideos,
+                videoKeyword = videoKeyword,
+                onVideoKeywordChange = { videoKeyword = it },
+                onFetchVideos = { keyword -> fetchVideos(keyword, { isLoadingVideos = it }, { videoResults = it }) } // Now fetchVideos is in scope
+
             )
         }
 
@@ -262,7 +262,7 @@ fun MainScreenWithNavigationDrawer() {
 fun ApiUI(
     modifier: Modifier = Modifier,
     currentViewMode: ViewMode,
-    videoResults: List<String>,
+    videoResults: Map<String,String>,
     answer: String,
     onAnswerChange: (String) -> Unit,
     bestCar: String,
@@ -271,12 +271,16 @@ fun ApiUI(
     onImageUrlChange: (String?) -> Unit,
     isLoadingCritica: Boolean,
     onIsLoadingCriticaChange: (Boolean) -> Unit,
-    isLoadingVideos: Boolean
+    isLoadingVideos: Boolean,
+    videoKeyword: String,
+    onVideoKeywordChange: (String) -> Unit,
+    onFetchVideos: (String) -> Unit
 ) {
     var question by remember { mutableStateOf("Cual es el mejor carro practico") } // Stays local to ApiUI if only used for this input
-    val coroutineScope = rememberCoroutineScope()
+    val coroutineScope = rememberCoroutineScope() // Hoist coroutineScope to ApiUI level
     val scrollState = rememberScrollState()
     val localContext = LocalContext.current
+
 
     Column(
         modifier = modifier
@@ -445,24 +449,50 @@ fun ApiUI(
 
             ViewMode.VIDEOS -> {
                 // --- UI for "Videos de automovil" ---
+                OutlinedTextField(
+                    value = videoKeyword,
+                    onValueChange = onVideoKeywordChange,
+                    label = { Text("Palabra clave del video") },
+                    leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = "Video Keyword Icon") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        if (videoKeyword.isNotBlank()) {
+                            Log.d("MainActivity", "Button clicked with keyword: $videoKeyword")
+                            onFetchVideos(videoKeyword) // Call the passed lambda
+                        }
+                    },
+                    enabled = !isLoadingVideos && videoKeyword.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.Blue, // Different color for distinction
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text("Buscar Videos")
+                }
+
+
                 if (isLoadingVideos) {
                     Spacer(modifier = Modifier.height(16.dp))
                     CircularProgressIndicator(color = Color.Blue)
                 } else if (videoResults.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Text("Resultados de Videos:", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    videoResults.forEach { videoItem ->
+                    videoResults.forEach { (title, url) ->
                         val annotatedVideoString = buildAnnotatedString {
-                            append(videoItem)
-                            if (URLUtil.isValidUrl(videoItem)) {
-                                addStringAnnotation("VIDEO_URL", videoItem, 0, videoItem.length)
+                            append(title) // Display the title (key)
+                            if (URLUtil.isValidUrl(url)) { // Check if the URL (value) is valid
+                                addStringAnnotation("VIDEO_URL", url, 0, title.length) // Annotate with the URL
                                 addStyle(
                                     style = SpanStyle(color = Color.Blue, textDecoration = TextDecoration.Underline),
                                     0,
-                                    videoItem.length
+                                    title.length
                                 )
                             }
                         }
+
                         Spacer(modifier = Modifier.height(8.dp))
                         ClickableText(
                             text = annotatedVideoString,

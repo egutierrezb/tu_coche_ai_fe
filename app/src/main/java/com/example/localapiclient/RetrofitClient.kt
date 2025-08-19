@@ -21,7 +21,8 @@ object RetrofitClient {
     val api: ApiService by lazy {
         Retrofit.Builder()
             //ipconfig getifaddr en1 for getting the ip address
-            .baseUrl("http://192.168.68.104:8000")  //user your backend ip
+            //we dont use the endpoint in localhost but GPU enabled VM hosted in TensorDock
+            .baseUrl("http://91.108.80.251:47959")  //user your backend ip
             .client(httpClient)// use the okhttpclient instance with logger and timeouts
             .addConverterFactory(GsonConverterFactory.create())
             .build()
@@ -31,7 +32,8 @@ object RetrofitClient {
     val videoApi: VideosService by lazy {
         Retrofit.Builder()
             // ipconfig getifaddr en1 for getting the ip address
-            .baseUrl("http://192.168.68.104:8001")  //user your backend ip
+            //http://192.168.68.104:8001 -> this is IP for the backend server (same wifi ip)
+            .baseUrl("https://egutierrezb.pythonanywhere.com/apivideos/")  //user your backend ip
             .client(httpClient)// use the okhttpclient instance with logger and timeouts
             .addConverterFactory(GsonConverterFactory.create())
             .build()
